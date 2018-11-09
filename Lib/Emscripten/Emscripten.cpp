@@ -568,8 +568,37 @@ DEFINE_INTRINSIC_FUNCTION(env, "___syscall140", I32, ___syscall140, I32 a, I32 b
 
 DEFINE_INTRINSIC_FUNCTION(env, "___syscall145", I32, ___syscall145, I32 file, I32 argsPtr)
 {
+	wavmAssert(emscriptenMemory);
+
 	// readv
-	throwException(Runtime::Exception::calledUnimplementedIntrinsicType);
+	U32* args = memoryArrayPtr<U32>(emscriptenMemory, argsPtr, 3);
+	U32 iov = args[1];
+	U32 iovcnt = args[2];
+#ifdef _WIN32
+	Uptr count = 0;
+	for(U32 i = 0; i < iovcnt; i++)
+	{
+		U32 base = memoryRef<U32>(emscriptenMemory, iov + i * 8);
+		U32 len = memoryRef<U32>(emscriptenMemory, iov + i * 8 + 4);
+		U32 size
+			= (U32)fread(memoryArrayPtr<U8>(emscriptenMemory, base, len), 1, len, vmFile(file));
+		count += size;
+		if(size < len) break;
+	}
+	return coerce32bitAddressSigned(emscriptenMemory, count);
+#else
+	struct iovec* native_iovec = new(alloca(sizeof(iovec) * iovcnt)) struct iovec[iovcnt];
+	for(U32 i = 0; i < iovcnt; i++)
+	{
+		U32 base = memoryRef<U32>(emscriptenMemory, iov + i * 8);
+		U32 len = memoryRef<U32>(emscriptenMemory, iov + i * 8 + 4);
+
+		native_iovec[i].iov_base = memoryArrayPtr<U8>(emscriptenMemory, base, len);
+		native_iovec[i].iov_len = len;
+	}
+	Iptr count = readv(fileno(vmFile(file)), native_iovec, iovcnt);
+	return coerce32bitAddressSigned(emscriptenMemory, count);
+#endif
 }
 
 DEFINE_INTRINSIC_FUNCTION(env, "___syscall146", I32, ___syscall146, I32 file, U32 argsPtr)
